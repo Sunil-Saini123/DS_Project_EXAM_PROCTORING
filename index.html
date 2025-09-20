@@ -1,0 +1,1221 @@
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Distributed Online Exam System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#3B82F6',
+                        secondary: '#10B981',
+                        accent: '#F59E0B'
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .editable-cell {
+            min-width: 80px;
+            padding: 4px 8px;
+            border: 1px solid transparent;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+        .editable-cell:hover {
+            background-color: #F3F4F6;
+            border-color: #D1D5DB;
+        }
+        .editable-cell.editing {
+            background-color: #FEF3C7;
+            border-color: #F59E0B;
+        }
+        .timer {
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            color: #DC2626;
+        }
+        .log-container {
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+        .log-line {
+            padding: 2px 8px;
+            margin: 1px 0;
+        }
+        .log-line:hover {
+            background-color: #F9FAFB;
+        }
+        .connection-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+        .connected { background-color: #10B981; }
+        .disconnected { background-color: #EF4444; }
+        .connecting { background-color: #F59E0B; animation: pulse 1s infinite; }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <!-- Header -->
+    <header class="bg-white shadow-lg">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center py-4">
+                <div class="flex items-center">
+                    <h1 class="text-2xl font-bold text-gray-900">Distributed Online Exam System</h1>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <span class="connection-indicator" id="connectionStatus"></span>
+                    <span id="connectionText" class="text-sm text-gray-600">Connecting...</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Tab Navigation -->
+    <nav class="bg-white border-b">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex space-x-8">
+                <button class="tab-button py-4 px-1 border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 font-medium text-sm active" onclick="switchTab('student')">
+                    Student Portal
+                </button>
+                <button class="tab-button py-4 px-1 border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 font-medium text-sm" onclick="switchTab('teacher')">
+                    Teacher Dashboard
+                </button>
+                <button class="tab-button py-4 px-1 border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 font-medium text-sm" onclick="switchTab('admin')">
+                    Admin Monitor
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        <!-- Student Tab -->
+        <div id="student" class="tab-content active">
+            <div class="px-4 py-6 sm:px-0">
+                <div class="bg-white overflow-hidden shadow rounded-lg">
+                    <!-- Student Login -->
+                    <div id="studentLogin" class="px-6 py-4">
+                        <h2 class="text-xl font-semibold text-gray-900 mb-4">Student Login</h2>
+                        <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">Roll Number</label>
+                                <input type="text" id="studentRollNo" class="mt-1 focus:ring-primary focus:border-primary block w-full shadow-sm sm:text-sm border-gray-300 rounded-md" placeholder="Enter your roll number">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">Full Name</label>
+                                <input type="text" id="studentName" class="mt-1 focus:ring-primary focus:border-primary block w-full shadow-sm sm:text-sm border-gray-300 rounded-md" placeholder="Enter your full name">
+                            </div>
+                        </div>
+                        <div class="mt-6">
+                            <button onclick="studentLogin()" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary">
+                                Start Exam
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Exam Interface -->
+                    <div id="examInterface" class="px-6 py-4" style="display: none;">
+                        <div class="flex justify-between items-center mb-6">
+                            <h2 class="text-xl font-semibold text-gray-900">Exam in Progress</h2>
+                            <div class="flex items-center space-x-4">
+                                <span class="text-sm text-gray-600">Time Remaining:</span>
+                                <span id="examTimer" class="timer text-lg">--:--:--</span>
+                            </div>
+                        </div>
+
+                        <div id="questionsContainer" class="space-y-6">
+                            <!-- Questions will be loaded here -->
+                        </div>
+
+                        <div class="mt-8 flex justify-end space-x-4">
+                            <button onclick="submitExam()" class="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-secondary hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-secondary">
+                                Submit Exam
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Exam Results -->
+                    <div id="examResults" class="px-6 py-4" style="display: none;">
+                        <div class="text-center">
+                            <h2 class="text-xl font-semibold text-gray-900 mb-4">Exam Completed</h2>
+                            <div class="bg-green-50 border border-green-200 rounded-md p-4">
+                                <p class="text-lg text-green-800">Your exam has been submitted successfully!</p>
+                                <p id="finalScore" class="text-2xl font-bold text-green-900 mt-2"></p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Teacher Tab -->
+        <div id="teacher" class="tab-content">
+            <div class="px-4 py-6 sm:px-0">
+                <!-- Teacher Login -->
+                <div id="teacherLogin" class="bg-white overflow-hidden shadow rounded-lg px-6 py-4">
+                    <h2 class="text-xl font-semibold text-gray-900 mb-4">Teacher Login</h2>
+                    <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Username</label>
+                            <input type="text" id="teacherUsername" value="teacher" class="mt-1 focus:ring-primary focus:border-primary block w-full shadow-sm sm:text-sm border-gray-300 rounded-md">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Password</label>
+                            <input type="password" id="teacherPassword" value="exam2024" class="mt-1 focus:ring-primary focus:border-primary block w-full shadow-sm sm:text-sm border-gray-300 rounded-md">
+                        </div>
+                    </div>
+                    <div class="mt-6">
+                        <button onclick="teacherLogin()" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary">
+                            Login
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Teacher Dashboard -->
+                <div id="teacherDashboard" style="display: none;">
+                    <!-- Exam Control Panel -->
+                    <div class="bg-white shadow rounded-lg mb-6">
+                        <div class="px-6 py-4 border-b border-gray-200">
+                            <h3 class="text-lg font-medium text-gray-900">Exam Control Panel</h3>
+                        </div>
+                        <div class="px-6 py-4">
+                            <div class="grid grid-cols-1 gap-6 sm:grid-cols-3">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700">Exam Title</label>
+                                    <input type="text" id="examTitle" value="Distributed Systems Exam" class="mt-1 focus:ring-primary focus:border-primary block w-full shadow-sm sm:text-sm border-gray-300 rounded-md">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700">Duration (minutes)</label>
+                                    <input type="number" id="examDuration" value="2" class="mt-1 focus:ring-primary focus:border-primary block w-full shadow-sm sm:text-sm border-gray-300 rounded-md">
+                                </div>
+                                <div class="flex items-end">
+                                    <button id="startExamBtn" onclick="startExam()" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-secondary hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-secondary">
+                                        Start Exam
+                                    </button>
+                                    <button id="endExamBtn" onclick="endExam()" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500" style="display: none;">
+                                        End Exam
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Student Management -->
+                    <div class="bg-white shadow rounded-lg">
+                        <div class="px-6 py-4 border-b border-gray-200">
+                            <div class="flex justify-between items-center">
+                                <h3 class="text-lg font-medium text-gray-900">Student Management</h3>
+                                <div class="flex space-x-4">
+                                    <button onclick="refreshStudentData()" class="px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary">
+                                        Refresh
+                                    </button>
+                                    <button onclick="toggleEditMode()" id="editModeBtn" class="px-3 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-accent hover:bg-yellow-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent">
+                                        Edit Marks
+                                    </button>
+                                    <button onclick="saveAllChanges()" id="saveChangesBtn" class="px-3 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-secondary hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-secondary" style="display: none;">
+                                        Save Changes
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="px-6 py-4">
+                            <div class="overflow-x-auto">
+                                <table class="min-w-full divide-y divide-gray-200" id="studentsTable">
+                                    <thead class="bg-gray-50">
+                                        <tr>
+                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Roll No</th>
+                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ISA</th>
+                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">MSE</th>
+                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ESE</th>
+                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
+                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cheating</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="bg-white divide-y divide-gray-200" id="studentsTableBody">
+                                        <!-- Student data will be loaded here -->
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div id="noStudents" class="text-center py-8 text-gray-500">
+                                No student data available. Students will appear here after logging in.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Admin Tab -->
+        <div id="admin" class="tab-content">
+            <div class="px-4 py-6 sm:px-0">
+                <!-- Admin Login -->
+                <div id="adminLogin" class="bg-white overflow-hidden shadow rounded-lg px-6 py-4">
+                    <h2 class="text-xl font-semibold text-gray-900 mb-4">Admin Login</h2>
+                    <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Username</label>
+                            <input type="text" id="adminUsername" value="admin" class="mt-1 focus:ring-primary focus:border-primary block w-full shadow-sm sm:text-sm border-gray-300 rounded-md">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Password</label>
+                            <input type="password" id="adminPassword" value="admin2024" class="mt-1 focus:ring-primary focus:border-primary block w-full shadow-sm sm:text-sm border-gray-300 rounded-md">
+                        </div>
+                    </div>
+                    <div class="mt-6">
+                        <button onclick="adminLogin()" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary">
+                            Login
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Admin Dashboard -->
+                <div id="adminDashboard" style="display: none;">
+                    <!-- System Metrics -->
+                    <div class="grid grid-cols-1 gap-6 sm:grid-cols-4 mb-6">
+                        <div class="bg-white overflow-hidden shadow rounded-lg">
+                            <div class="p-5">
+                                <div class="flex items-center">
+                                    <div class="flex-shrink-0">
+                                        <div class="w-8 h-8 bg-primary rounded-md flex items-center justify-center">
+                                            <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z"></path>
+                                            </svg>
+                                        </div>
+                                    </div>
+                                    <div class="ml-5 w-0 flex-1">
+                                        <dl>
+                                            <dt class="text-sm font-medium text-gray-500 truncate">Active Students</dt>
+                                            <dd class="text-lg font-medium text-gray-900" id="activeStudentsCount">0</dd>
+                                        </dl>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white overflow-hidden shadow rounded-lg">
+                            <div class="p-5">
+                                <div class="flex items-center">
+                                    <div class="flex-shrink-0">
+                                        <div class="w-8 h-8 bg-secondary rounded-md flex items-center justify-center">
+                                            <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                            </svg>
+                                        </div>
+                                    </div>
+                                    <div class="ml-5 w-0 flex-1">
+                                        <dl>
+                                            <dt class="text-sm font-medium text-gray-500 truncate">Completed</dt>
+                                            <dd class="text-lg font-medium text-gray-900" id="completedCount">0</dd>
+                                        </dl>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white overflow-hidden shadow rounded-lg">
+                            <div class="p-5">
+                                <div class="flex items-center">
+                                    <div class="flex-shrink-0">
+                                        <div class="w-8 h-8 bg-red-500 rounded-md flex items-center justify-center">
+                                            <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                            </svg>
+                                        </div>
+                                    </div>
+                                    <div class="ml-5 w-0 flex-1">
+                                        <dl>
+                                            <dt class="text-sm font-medium text-gray-500 truncate">Pending Requests</dt>
+                                            <dd class="text-lg font-medium text-gray-900" id="pendingCount">0</dd>
+                                        </dl>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white overflow-hidden shadow rounded-lg">
+                            <div class="p-5">
+                                <div class="flex items-center">
+                                    <div class="flex-shrink-0">
+                                        <div class="w-8 h-8 bg-accent rounded-md flex items-center justify-center">
+                                            <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                                            </svg>
+                                        </div>
+                                    </div>
+                                    <div class="ml-5 w-0 flex-1">
+                                        <dl>
+                                            <dt class="text-sm font-medium text-gray-500 truncate">System Load</dt>
+                                            <dd class="text-lg font-medium text-gray-900" id="systemLoad">Normal</dd>
+                                        </dl>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- System Logs -->
+                    <div class="bg-white shadow rounded-lg mb-6">
+                        <div class="px-6 py-4 border-b border-gray-200">
+                            <div class="flex justify-between items-center">
+                                <h3 class="text-lg font-medium text-gray-900">System Logs</h3>
+                                <div class="flex space-x-4">
+                                    <select id="logServiceFilter" class="text-sm border-gray-300 rounded-md">
+                                        <option value="">All Services</option>
+                                        <option value="main">Main Server</option>
+                                        <option value="consistency">Consistency Service</option>
+                                        <option value="load_balancer">Load Balancer</option>
+                                    </select>
+                                    <button onclick="refreshLogs()" class="px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
+                                        Refresh
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="px-6 py-4">
+                            <div class="log-container" id="systemLogs">
+                                <div class="text-center text-gray-500 py-4">Loading system logs...</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Active Connections -->
+                    <div class="bg-white shadow rounded-lg">
+                        <div class="px-6 py-4 border-b border-gray-200">
+                            <div class="flex justify-between items-center">
+                                <h3 class="text-lg font-medium text-gray-900">Active Connections</h3>
+                                <button onclick="refreshConnections()" class="px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
+                                    Refresh
+                                </button>
+                            </div>
+                        </div>
+                        <div class="px-6 py-4">
+                            <div class="overflow-x-auto">
+                                <table class="min-w-full divide-y divide-gray-200">
+                                    <thead class="bg-gray-50">
+                                        <tr>
+                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Client ID</th>
+                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Connected Since</th>
+                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="bg-white divide-y divide-gray-200" id="connectionsTableBody">
+                                        <tr>
+                                            <td colspan="4" class="px-6 py-4 text-center text-gray-500">Loading connections...</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // Global state
+        let currentTab = 'student';
+        let studentSessionId = '';
+        let teacherToken = '';
+        let adminToken = '';
+        let examTimer = null;
+        let studentAnswers = [];
+        let editMode = false;
+        let changedCells = new Map();
+        let websockets = {};
+
+        // WebSocket management
+        function connectWebSocket(type, identifier = '') {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const host = window.location.host;
+            let url = `${protocol}//${host}/ws/${type}`;
+            if (identifier) url += `/${identifier}`;
+
+            const ws = new WebSocket(url);
+            
+            ws.onopen = function() {
+                updateConnectionStatus('connected');
+                console.log(`${type} WebSocket connected`);
+            };
+            
+            ws.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                handleWebSocketMessage(type, data);
+            };
+            
+            ws.onclose = function() {
+                updateConnectionStatus('disconnected');
+                console.log(`${type} WebSocket disconnected`);
+                // Attempt to reconnect after 3 seconds
+                setTimeout(() => connectWebSocket(type, identifier), 3000);
+            };
+            
+            ws.onerror = function(error) {
+                console.error(`${type} WebSocket error:`, error);
+                updateConnectionStatus('disconnected');
+            };
+            
+            websockets[type] = ws;
+        }
+
+        function handleWebSocketMessage(type, data) {
+            switch (data.type) {
+                case 'heartbeat_response':
+                    // Keep connection alive
+                    break;
+                case 'status_update':
+                    if (type === 'student') {
+                        updateStudentStatus(data.data);
+                    }
+                    break;
+                case 'students_update':
+                    if (type === 'teacher') {
+                        updateStudentTable(data.data.students);
+                    }
+                    break;
+                case 'logs_update':
+                    if (type === 'admin') {
+                        updateSystemLogs(data.data.logs);
+                    }
+                    break;
+                case 'metrics_update':
+                    if (type === 'admin') {
+                        updateMetrics(data.data.metrics);
+                    }
+                    break;
+            }
+        }
+
+        function sendWebSocketMessage(type, message) {
+            if (websockets[type] && websockets[type].readyState === WebSocket.OPEN) {
+                websockets[type].send(JSON.stringify(message));
+            }
+        }
+
+        function updateConnectionStatus(status) {
+            const indicator = document.getElementById('connectionStatus');
+            const text = document.getElementById('connectionText');
+            
+            indicator.className = 'connection-indicator ' + status;
+            
+            switch (status) {
+                case 'connected':
+                    text.textContent = 'Connected';
+                    break;
+                case 'connecting':
+                    text.textContent = 'Connecting...';
+                    break;
+                case 'disconnected':
+                    text.textContent = 'Disconnected';
+                    break;
+            }
+        }
+
+        // Tab switching
+        function switchTab(tabName) {
+            // Hide all tab contents
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            
+            // Remove active class from all tab buttons
+            document.querySelectorAll('.tab-button').forEach(button => {
+                button.classList.remove('active', 'text-primary', 'border-primary');
+                button.classList.add('text-gray-500', 'border-transparent');
+            });
+            
+            // Show selected tab content
+            document.getElementById(tabName).classList.add('active');
+            
+            // Add active class to selected tab button
+            event.target.classList.add('active', 'text-primary', 'border-primary');
+            event.target.classList.remove('text-gray-500', 'border-transparent');
+            
+            currentTab = tabName;
+            
+            // Connect appropriate WebSocket
+            switch (tabName) {
+                case 'student':
+                    if (studentSessionId) {
+                        const rollNo = document.getElementById('studentRollNo').value;
+                        connectWebSocket('student', rollNo);
+                    }
+                    break;
+                case 'teacher':
+                    if (teacherToken) {
+                        connectWebSocket('teacher');
+                    }
+                    break;
+                case 'admin':
+                    if (adminToken) {
+                        connectWebSocket('admin');
+                        refreshMetrics();
+                        refreshLogs();
+                        refreshConnections();
+                    }
+                    break;
+            }
+        }
+
+        // Student functionality
+        async function studentLogin() {
+            const rollNo = document.getElementById('studentRollNo').value;
+            const name = document.getElementById('studentName').value;
+            
+            if (!rollNo || !name) {
+                alert('Please enter both roll number and name');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/student/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ roll_no: rollNo, name: name })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    studentSessionId = data.session_id;
+                    document.getElementById('studentLogin').style.display = 'none';
+                    document.getElementById('examInterface').style.display = 'block';
+                    
+                    // Connect WebSocket for real-time updates
+                    connectWebSocket('student', rollNo);
+                    
+                    // Load questions and start timer
+                    await loadExamQuestions(rollNo, data.session_id);
+                    startExamTimer(data.exam_end_time);
+                } else {
+                    alert(data.message);
+                }
+            } catch (error) {
+                console.error('Login error:', error);
+                alert('Login failed. Please try again.');
+            }
+        }
+                
+        async function loadExamQuestions(rollNo, sessionId) {
+            try {
+                const response = await fetch(`/api/student/${rollNo}/questions?session_id=${sessionId}`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    displayQuestions(data.questions);
+                } else {
+                    alert('Failed to load questions');
+                }
+            } catch (error) {
+                console.error('Load questions error:', error);
+                alert('Failed to load questions');
+            }
+        }
+
+        function displayQuestions(questions) {
+            const container = document.getElementById('questionsContainer');
+            container.innerHTML = '';
+            
+            questions.forEach((question, index) => {
+                const questionDiv = document.createElement('div');
+                questionDiv.className = 'bg-gray-50 rounded-lg p-6';
+                questionDiv.innerHTML = `
+                    <h3 class="text-lg font-medium text-gray-900 mb-4">Question ${index + 1}</h3>
+                    <p class="text-gray-700 mb-4">${question.text}</p>
+                    <div class="space-y-2">
+                        ${question.options.map(option => `
+                            <label class="flex items-center">
+                                <input type="radio" name="question_${question.question_id}" value="${option.charAt(0)}" class="focus:ring-primary h-4 w-4 text-primary border-gray-300">
+                                <span class="ml-3 text-gray-700">${option}</span>
+                            </label>
+                        `).join('')}
+                    </div>
+                `;
+                container.appendChild(questionDiv);
+            });
+        }
+
+        function startExamTimer(endTime) {
+            examTimer = setInterval(() => {
+                const now = Date.now() / 1000;
+                const remaining = Math.max(0, endTime - now);
+                
+                if (remaining <= 0) {
+                    clearInterval(examTimer);
+                    autoSubmitExam();
+                    return;
+                }
+                
+                const hours = Math.floor(remaining / 3600);
+                const minutes = Math.floor((remaining % 3600) / 60);
+                const seconds = Math.floor(remaining % 60);
+                
+                document.getElementById('examTimer').textContent = 
+                    `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            }, 1000);
+        }
+
+        async function submitExam() {
+            const rollNo = document.getElementById('studentRollNo').value;
+            const answers = [];
+            
+            // Collect answers
+            document.querySelectorAll('input[type="radio"]:checked').forEach(input => {
+                const questionId = input.name.replace('question_', '');
+                answers.push({
+                    question_id: questionId,
+                    selected_option: input.value
+                });
+            });
+            
+            try {
+                const response = await fetch(`/api/student/${rollNo}/submit`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        session_id: studentSessionId,
+                        answers: answers,
+                        submit_type: 'manual'
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    clearInterval(examTimer);
+                    showExamResults(data.final_score);
+                } else {
+                    alert(data.message);
+                }
+            } catch (error) {
+                console.error('Submit error:', error);
+                alert('Submission failed. Please try again.');
+            }
+        }
+
+        async function autoSubmitExam() {
+            // Similar to submitExam but with submit_type: 'auto'
+            const rollNo = document.getElementById('studentRollNo').value;
+            const answers = [];
+            
+            document.querySelectorAll('input[type="radio"]:checked').forEach(input => {
+                const questionId = input.name.replace('question_', '');
+                answers.push({
+                    question_id: questionId,
+                    selected_option: input.value
+                });
+            });
+            
+            try {
+                await fetch(`/api/student/${rollNo}/submit`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        session_id: studentSessionId,
+                        answers: answers,
+                        submit_type: 'auto'
+                    })
+                });
+                
+                showExamResults(0, true);
+            } catch (error) {
+                console.error('Auto-submit error:', error);
+            }
+        }
+
+        function showExamResults(score, autoSubmitted = false) {
+            document.getElementById('examInterface').style.display = 'none';
+            document.getElementById('examResults').style.display = 'block';
+            
+            const message = autoSubmitted ? 'Time expired - Auto submitted' : `Final Score: ${score}/100`;
+            document.getElementById('finalScore').textContent = message;
+        }
+
+        // Teacher functionality
+        async function teacherLogin() {
+            const username = document.getElementById('teacherUsername').value;
+            const password = document.getElementById('teacherPassword').value;
+            
+            try {
+                const response = await fetch('/api/teacher/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    teacherToken = data.token;
+                    document.getElementById('teacherLogin').style.display = 'none';
+                    document.getElementById('teacherDashboard').style.display = 'block';
+                    
+                    // Connect WebSocket
+                    connectWebSocket('teacher');
+                    
+                    // Load initial data
+                    refreshStudentData();
+                } else {
+                    alert(data.message);
+                }
+            } catch (error) {
+                console.error('Teacher login error:', error);
+                alert('Login failed. Please try again.');
+            }
+        }
+
+        async function startExam() {
+            const title = document.getElementById('examTitle').value;
+            const duration = parseInt(document.getElementById('examDuration').value);
+            
+            try {
+                const response = await fetch('/api/teacher/start-exam', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        exam_title: title,
+                        duration_minutes: duration
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    document.getElementById('startExamBtn').style.display = 'none';
+                    document.getElementById('endExamBtn').style.display = 'block';
+                    alert('Exam started successfully!');
+                } else {
+                    alert(data.message);
+                }
+            } catch (error) {
+                console.error('Start exam error:', error);
+                alert('Failed to start exam');
+            }
+        }
+
+        async function endExam() {
+            try {
+                const response = await fetch('/api/teacher/end-exam', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: 'current' })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    document.getElementById('startExamBtn').style.display = 'block';
+                    document.getElementById('endExamBtn').style.display = 'none';
+                    alert('Exam ended successfully!');
+                    refreshStudentData();
+                } else {
+                    alert(data.message);
+                }
+            } catch (error) {
+                console.error('End exam error:', error);
+                alert('Failed to end exam');
+            }
+        }
+
+        async function refreshStudentData() {
+            try {
+                const response = await fetch('/api/teacher/students');
+                const data = await response.json();
+                
+                if (data.success) {
+                    updateStudentTable(data.students);
+                } else {
+                    console.error('Failed to load student data');
+                }
+            } catch (error) {
+                console.error('Refresh error:', error);
+            }
+        }
+
+        function updateStudentTable(students) {
+            const tbody = document.getElementById('studentsTableBody');
+            const noStudents = document.getElementById('noStudents');
+            
+            if (!students || students.length === 0) {
+                tbody.innerHTML = '';
+                noStudents.style.display = 'block';
+                return;
+            }
+            
+            noStudents.style.display = 'none';
+            tbody.innerHTML = students.map(student => `
+                <tr>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${student.roll_no}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${student.name}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <span class="editable-cell" data-field="isa_marks" data-roll="${student.roll_no}" ${editMode ? 'contenteditable="true"' : ''}>${student.isa_marks}</span>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <span class="editable-cell" data-field="mse_marks" data-roll="${student.roll_no}" ${editMode ? 'contenteditable="true"' : ''}>${student.mse_marks}</span>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <span class="editable-cell" data-field="ese_marks" data-roll="${student.roll_no}" ${editMode ? 'contenteditable="true"' : ''}>${student.ese_marks}</span>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium">
+                        ${student.isa_marks + student.mse_marks + student.ese_marks}
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusBadgeColor(student.status)}">
+                            ${student.status}
+                        </span>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        ${student.cheating_count > 0 ? `<span class="text-red-600 font-medium">${student.cheating_count}</span>` : '0'}
+                    </td>
+                </tr>
+            `).join('');
+            
+            if (editMode) {
+                attachEditListeners();
+            }
+        }
+
+        function getStatusBadgeColor(status) {
+            switch (status) {
+                case 'active': return 'bg-blue-100 text-blue-800';
+                case 'submitted': return 'bg-green-100 text-green-800';
+                case 'terminated': return 'bg-red-100 text-red-800';
+                default: return 'bg-gray-100 text-gray-800';
+            }
+        }
+
+        function toggleEditMode() {
+            editMode = !editMode;
+            const editBtn = document.getElementById('editModeBtn');
+            const saveBtn = document.getElementById('saveChangesBtn');
+            
+            if (editMode) {
+                editBtn.textContent = 'Cancel Edit';
+                editBtn.className = 'px-3 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500';
+                saveBtn.style.display = 'block';
+                
+                // Make cells editable
+                document.querySelectorAll('.editable-cell').forEach(cell => {
+                    cell.setAttribute('contenteditable', 'true');
+                });
+                attachEditListeners();
+            } else {
+                editBtn.textContent = 'Edit Marks';
+                editBtn.className = 'px-3 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-accent hover:bg-yellow-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent';
+                saveBtn.style.display = 'none';
+                
+                // Make cells non-editable
+                document.querySelectorAll('.editable-cell').forEach(cell => {
+                    cell.removeAttribute('contenteditable');
+                    cell.classList.remove('editing');
+                });
+                
+                // Clear changes
+                changedCells.clear();
+                refreshStudentData();
+            }
+        }
+
+        function attachEditListeners() {
+            document.querySelectorAll('.editable-cell').forEach(cell => {
+                cell.addEventListener('focus', function() {
+                    this.classList.add('editing');
+                });
+                
+                cell.addEventListener('blur', function() {
+                    this.classList.remove('editing');
+                    const roll = this.dataset.roll;
+                    const field = this.dataset.field;
+                    const value = parseInt(this.textContent) || 0;
+                    
+                    const key = `${roll}_${field}`;
+                    if (!changedCells.has(key)) {
+                        changedCells.set(key, { roll, field, value });
+                    } else {
+                        changedCells.get(key).value = value;
+                    }
+                    
+                    // Update total
+                    updateRowTotal(roll);
+                });
+                
+                cell.addEventListener('keypress', function(e) {
+                    // Only allow numbers
+                    if (!/[0-9]/.test(e.key) && e.key !== 'Backspace' && e.key !== 'Delete' && e.key !== 'Enter') {
+                        e.preventDefault();
+                    }
+                    
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        this.blur();
+                    }
+                });
+            });
+        }
+
+        function updateRowTotal(rollNo) {
+            const row = document.querySelector(`[data-roll="${rollNo}"]`).closest('tr');
+            const cells = row.querySelectorAll('.editable-cell');
+            const total = Array.from(cells).reduce((sum, cell) => sum + (parseInt(cell.textContent) || 0), 0);
+            row.querySelector('td:nth-child(6)').textContent = total;
+        }
+
+        async function saveAllChanges() {
+            if (changedCells.size === 0) {
+                alert('No changes to save');
+                return;
+            }
+            
+            const saveBtn = document.getElementById('saveChangesBtn');
+            const originalText = saveBtn.textContent;
+            saveBtn.textContent = 'Saving...';
+            saveBtn.disabled = true;
+            
+            try {
+                // Group changes by roll number
+                const changesByRoll = {};
+                changedCells.forEach(change => {
+                    if (!changesByRoll[change.roll]) {
+                        changesByRoll[change.roll] = { isa_marks: 0, mse_marks: 0, ese_marks: 0 };
+                    }
+                    changesByRoll[change.roll][change.field] = change.value;
+                });
+                
+                // Send updates for each student
+                for (const [rollNo, updates] of Object.entries(changesByRoll)) {
+                    await fetch(`/api/teacher/student/${rollNo}/marks`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            ...updates,
+                            updated_by: 'teacher_web'
+                        })
+                    });
+                }
+                
+                alert('All changes saved successfully!');
+                changedCells.clear();
+                toggleEditMode(); // Exit edit mode
+                
+            } catch (error) {
+                console.error('Save error:', error);
+                alert('Failed to save some changes. Please try again.');
+            } finally {
+                saveBtn.textContent = originalText;
+                saveBtn.disabled = false;
+            }
+        }
+
+        // Admin functionality
+        async function adminLogin() {
+            const username = document.getElementById('adminUsername').value;
+            const password = document.getElementById('adminPassword').value;
+            
+            try {
+                const response = await fetch('/api/admin/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    adminToken = data.token;
+                    document.getElementById('adminLogin').style.display = 'none';
+                    document.getElementById('adminDashboard').style.display = 'block';
+                    
+                    // Connect WebSocket
+                    connectWebSocket('admin');
+                    
+                    // Load initial data
+                    refreshMetrics();
+                    refreshLogs();
+                    refreshConnections();
+                    
+                    // Set up auto-refresh
+                    setInterval(refreshMetrics, 5000); // Every 5 seconds
+                    setInterval(refreshLogs, 10000); // Every 10 seconds
+                } else {         
+                    alert(data.message);
+                }
+            }catch (error) {
+                console.error('Admin login error:', error);
+                alert('Login failed. Please try again.');
+            }
+        }
+
+        async function refreshMetrics() {
+            try {
+                const response = await fetch('/api/admin/metrics');
+                const data = await response.json();
+                
+                if (data.success) {
+                    updateMetrics(data.metrics);
+                }
+            } catch (error) {
+                console.error('Metrics refresh error:', error);
+            }
+        }
+
+        function updateMetrics(metrics) {
+            document.getElementById('activeStudentsCount').textContent = metrics.active_students || 0;
+            document.getElementById('completedCount').textContent = metrics.completed_submissions || 0;
+            document.getElementById('pendingCount').textContent = metrics.pending_requests || 0;
+            
+            const load = metrics.active_students > 10 ? 'High' : metrics.active_students > 5 ? 'Medium' : 'Normal';
+            document.getElementById('systemLoad').textContent = load;
+        }
+
+        async function refreshLogs() {
+            const serviceFilter = document.getElementById('logServiceFilter').value;
+            
+            try {
+                const response = await fetch(`/api/admin/logs?last_n=50&service_name=${serviceFilter}`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    updateSystemLogs(data.logs);
+                }
+            } catch (error) {
+                console.error('Logs refresh error:', error);
+            }
+        }
+
+        function updateSystemLogs(logs) {
+            const container = document.getElementById('systemLogs');
+            container.innerHTML = logs.map(log => 
+                `<div class="log-line text-xs text-gray-700">${escapeHtml(log)}</div>`
+            ).join('');
+            
+            // Auto-scroll to bottom
+            container.scrollTop = container.scrollHeight;
+        }
+
+        async function refreshConnections() {
+            try {
+                const response = await fetch('/api/admin/connections');
+                const data = await response.json();
+                
+                if (data.success) {
+                    updateConnectionsTable(data.connections);
+                }
+            } catch (error) {
+                console.error('Connections refresh error:', error);
+            }
+        }
+
+        function updateConnectionsTable(connections) {
+            const tbody = document.getElementById('connectionsTableBody');
+            
+            if (!connections || connections.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="px-6 py-4 text-center text-gray-500">No active connections</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = connections.map(conn => `
+                <tr>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${conn.client_id}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${conn.connection_type}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${new Date(conn.connected_since).toLocaleString()}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusBadgeColor(conn.status)}">
+                            ${conn.status}
+                        </span>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        // Utility functions
+        function escapeHtml(text) {
+            const map = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            };
+            return text.replace(/[&<>"']/g, function(m) { return map[m]; });
+        }
+
+        function updateStudentStatus(statusData) {
+            if (statusData.success && currentTab === 'student') {
+                // Update UI with current student status
+                console.log('Student status updated:', statusData);
+            }
+        }
+
+        // Initialize the application
+        document.addEventListener('DOMContentLoaded', function() {
+            // Set up initial connection status
+            updateConnectionStatus('connecting');
+            
+            // Add heartbeat for WebSocket connections
+            setInterval(() => {
+                Object.keys(websockets).forEach(type => {
+                    sendWebSocketMessage(type, { type: 'heartbeat' });
+                });
+            }, 30000); // Every 30 seconds
+            
+            // Set up event listeners for form submissions
+            document.getElementById('studentRollNo').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') studentLogin();
+            });
+            
+            document.getElementById('studentName').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') studentLogin();
+            });
+            
+            document.getElementById('teacherUsername').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') teacherLogin();
+            });
+            
+            document.getElementById('teacherPassword').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') teacherLogin();
+            });
+            
+            document.getElementById('adminUsername').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') adminLogin();
+            });
+            
+            document.getElementById('adminPassword').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') adminLogin();
+            });
+            
+            // Set up service filter change listener
+            document.getElementById('logServiceFilter').addEventListener('change', refreshLogs);
+            
+            console.log('Distributed Exam System initialized');
+        });
+
+        // Handle page unload
+        window.addEventListener('beforeunload', function() {
+            Object.values(websockets).forEach(ws => {
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.close();
+                }
+            });
+        });
+    </script>
+</body>
+</html>

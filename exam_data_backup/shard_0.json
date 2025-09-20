@@ -1,0 +1,29 @@
+{
+  "23102A0027": {
+    "roll_no": "23102A0027",
+    "name": "RIYA SACHIN GAIKWAD",
+    "isa_marks": 34,
+    "mse_marks": 11,
+    "ese_marks": 35,
+    "status": "registered",
+    "cheating_count": 0
+  },
+  "23102A0028": {
+    "roll_no": "23102A0028",
+    "name": "RUTUJA DINESH KAMALE",
+    "isa_marks": 36,
+    "mse_marks": 13,
+    "ese_marks": 31,
+    "status": "registered",
+    "cheating_count": 0
+  },
+  "23102A0040": {
+    "roll_no": "23102A0040",
+    "name": "AYUSH AMIT MANORE",
+    "isa_marks": 34,
+    "mse_marks": 9,
+    "ese_marks": 37,
+    "status": "registered",
+    "cheating_count": 0
+  }
+}

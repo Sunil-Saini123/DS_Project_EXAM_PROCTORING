@@ -1,0 +1,47 @@
+{
+  "23102A0031": {
+    "roll_no": "23102A0031",
+    "name": "KRISH RAINA",
+    "isa_marks": 17,
+    "mse_marks": 8,
+    "ese_marks": 0,
+    "status": "registered",
+    "cheating_count": 0
+  },
+  "23102A0032": {
+    "roll_no": "23102A0032",
+    "name": "ASHA SANJAY BHOKARE",
+    "isa_marks": 33,
+    "mse_marks": 15,
+    "ese_marks": 32,
+    "status": "registered",
+    "cheating_count": 0
+  },
+  "23102A0035": {
+    "roll_no": "23102A0035",
+    "name": "ESHA DINESH PAWAR",
+    "isa_marks": 36,
+    "mse_marks": 18,
+    "ese_marks": 26,
+    "status": "registered",
+    "cheating_count": 0
+  },
+  "23102A0039": {
+    "roll_no": "23102A0039",
+    "name": "MUBINA SYED HASAN",
+    "isa_marks": 39,
+    "mse_marks": 16,
+    "ese_marks": 25,
+    "status": "registered",
+    "cheating_count": 0
+  },
+  "23102A0042": {
+    "roll_no": "23102A0042",
+    "name": "AASHNA PRASHANT GAIKWAD",
+    "isa_marks": 33,
+    "mse_marks": 7,
+    "ese_marks": 40,
+    "status": "registered",
+    "cheating_count": 0
+  }
+}

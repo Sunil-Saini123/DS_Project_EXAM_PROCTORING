@@ -1,0 +1,387 @@
+syntax = "proto3";
+
+package exam_system;
+
+// Main Exam Service - handles student interactions and exam flow
+service ExamService {
+  rpc StartExam(StartExamRequest) returns (StartExamResponse);
+  rpc GetExamQuestions(GetExamQuestionsRequest) returns (GetExamQuestionsResponse);
+  rpc SubmitExam(SubmitExamRequest) returns (SubmitExamResponse);
+  rpc GetStudentStatus(GetStudentStatusRequest) returns (GetStudentStatusResponse);
+}
+
+// Teacher Service - handles teacher operations
+service TeacherService {
+  rpc StartExamSession(StartExamSessionRequest) returns (StartExamSessionResponse);
+  rpc EndExamSession(EndExamSessionRequest) returns (EndExamSessionResponse);
+  rpc GetAllStudentMarks(GetAllStudentMarksRequest) returns (GetAllStudentMarksResponse);
+  rpc UpdateStudentMarks(UpdateStudentMarksRequest) returns (UpdateStudentMarksResponse);
+  rpc GetExamResults(GetExamResultsRequest) returns (GetExamResultsResponse);
+}
+
+// Load Balancer Service - handles request distribution and failover
+service LoadBalancerService {
+  rpc RouteSubmission(RouteSubmissionRequest) returns (RouteSubmissionResponse);
+  rpc GetServerStatus(GetServerStatusRequest) returns (GetServerStatusResponse);
+  rpc MigrateRequests(MigrateRequestsRequest) returns (MigrateRequestsResponse);
+}
+
+// Backup Server Service - processes requests when main server is overloaded
+service BackupService {
+  rpc ProcessSubmission(ProcessSubmissionRequest) returns (SubmitExamResponse);
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+// Consistency Service - manages data consistency and replication
+service ConsistencyService {
+  rpc ReadStudentData(ReadStudentDataRequest) returns (ReadStudentDataResponse);
+  rpc WriteStudentData(WriteStudentDataRequest) returns (WriteStudentDataResponse);
+  rpc BeginReadTransaction(BeginReadTransactionRequest) returns (BeginReadTransactionResponse);
+  rpc EndReadTransaction(EndReadTransactionRequest) returns (EndReadTransactionResponse);
+  rpc BeginWriteTransaction(BeginWriteTransactionRequest) returns (BeginWriteTransactionResponse);
+  rpc EndWriteTransaction(EndWriteTransactionRequest) returns (EndWriteTransactionResponse);
+  rpc GetAllStudentsData(GetAllStudentsDataRequest) returns (GetAllStudentsDataResponse);
+}
+
+// Ricart-Agrawala Service - mutual exclusion (keeping existing)
+service RicartAgrawalaService {
+  rpc RequestCS(RequestCSRequest) returns (RequestCSResponse);
+  rpc ReleaseCS(ReleaseCSRequest) returns (ReleaseCSResponse);
+}
+
+// Time Service - for synchronization (keeping existing)
+service TimeService {
+  rpc GetClock(GetClockRequest) returns (GetClockResponse);
+  rpc SetClock(SetClockRequest) returns (SetClockResponse);
+}
+
+// Admin Service - for monitoring and logging
+service AdminService {
+  rpc GetSystemLogs(GetSystemLogsRequest) returns (GetSystemLogsResponse);
+  rpc GetServerMetrics(GetServerMetricsRequest) returns (GetServerMetricsResponse);
+  rpc GetActiveConnections(GetActiveConnectionsRequest) returns (GetActiveConnectionsResponse);
+}
+
+// --- Message Definitions ---
+
+// Student and Exam Data
+message Student {
+  string roll_no = 1;
+  string name = 2;
+  int32 isa_marks = 3;
+  int32 mse_marks = 4;
+  int32 ese_marks = 5;
+  string status = 6; // "active", "submitted", "terminated"
+  int32 cheating_count = 7;
+}
+
+message Question {
+  string question_id = 1;
+  string text = 2;
+  repeated string options = 3;
+  string correct_answer = 4;
+}
+
+message Answer {
+  string question_id = 1;
+  string selected_option = 2;
+}
+
+// Exam Service Messages
+message StartExamRequest {
+  string roll_no = 1;
+  string student_name = 2;
+}
+
+message StartExamResponse {
+  bool success = 1;
+  string message = 2;
+  double exam_end_time = 3;
+  string session_id = 4;
+}
+
+message GetExamQuestionsRequest {
+  string session_id = 1;
+  string roll_no = 2;
+}
+
+message GetExamQuestionsResponse {
+  bool success = 1;
+  repeated Question questions = 2;
+  double time_remaining = 3;
+}
+
+message SubmitExamRequest {
+  string roll_no = 1;
+  string session_id = 2;
+  repeated Answer answers = 3;
+  string submit_type = 4; // "manual" or "auto"
+  int32 priority = 5;
+}
+
+message SubmitExamResponse {
+  bool success = 1;
+  string message = 2;
+  int32 final_score = 3;
+}
+
+message GetStudentStatusRequest {
+  string roll_no = 1;
+}
+
+message GetStudentStatusResponse {
+  bool success = 1;
+  Student student = 2;
+  double time_remaining = 3;
+}
+
+// Teacher Service Messages
+message StartExamSessionRequest {
+  int32 duration_minutes = 1;
+  string exam_title = 2;
+}
+
+message StartExamSessionResponse {
+  bool success = 1;
+  string message = 2;
+  string session_id = 3;
+  double exam_end_time = 4;
+}
+
+message EndExamSessionRequest {
+  string session_id = 1;
+}
+
+message EndExamSessionResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message GetAllStudentMarksRequest {
+  string session_id = 1;
+}
+
+message GetAllStudentMarksResponse {
+  bool success = 1;
+  repeated Student students = 2;
+}
+
+message UpdateStudentMarksRequest {
+  string roll_no = 1;
+  int32 isa_marks = 2;
+  int32 mse_marks = 3;
+  int32 ese_marks = 4;
+  string updated_by = 5;
+}
+
+message UpdateStudentMarksResponse {
+  bool success = 1;
+  string message = 2;
+  Student updated_student = 3;
+}
+
+message GetExamResultsRequest {
+  string session_id = 1;
+}
+
+message GetExamResultsResponse {
+  bool success = 1;
+  repeated Student students = 2;
+  ExamStatistics statistics = 3;
+}
+
+message ExamStatistics {
+  int32 total_students = 1;
+  int32 completed_students = 2;
+  int32 cheating_incidents = 3;
+  double average_score = 4;
+  int32 passed_students = 5;
+}
+
+// Load Balancer Messages
+message RouteSubmissionRequest {
+  SubmitExamRequest submission = 1;
+  int32 current_load = 2;
+}
+
+message RouteSubmissionResponse {
+  bool routed_to_backup = 1;
+  SubmitExamResponse result = 2;
+}
+
+message GetServerStatusRequest {}
+
+message GetServerStatusResponse {
+  bool main_server_healthy = 1;
+  bool backup_server_healthy = 2;
+  int32 current_load = 3;
+  int32 max_capacity = 4;
+}
+
+message MigrateRequestsRequest {
+  repeated SubmitExamRequest requests = 1;
+  string target_server = 2;
+}
+
+message MigrateRequestsResponse {
+  bool success = 1;
+  repeated SubmitExamResponse results = 2;
+}
+
+// Backup Service Messages
+message ProcessSubmissionRequest {
+  SubmitExamRequest submission = 1;
+  bool forwarded_from_primary = 2;
+}
+
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+  bool healthy = 1;
+  int32 processed_requests = 2;
+  int32 load = 3;
+}
+
+// Consistency Service Messages
+message ReadStudentDataRequest {
+  string roll_no = 1;
+  string requester_type = 2; // "student" or "teacher"
+}
+
+message ReadStudentDataResponse {
+  bool success = 1;
+  Student student = 2;
+  string message = 3;
+  int32 chunk_id = 4;
+}
+
+message WriteStudentDataRequest {
+  string roll_no = 1;
+  Student student_data = 2;
+  string requester_type = 3;
+}
+
+message WriteStudentDataResponse {
+  bool success = 1;
+  string message = 2;
+  Student updated_student = 3;
+}
+
+message BeginReadTransactionRequest {
+  string roll_no = 1;
+  string transaction_id = 2;
+}
+
+message BeginReadTransactionResponse {
+  bool success = 1;
+  string message = 2;
+  Student student = 3;
+}
+
+message EndReadTransactionRequest {
+  string roll_no = 1;
+  string transaction_id = 2;
+}
+
+message EndReadTransactionResponse {
+  bool success = 1;
+}
+
+message BeginWriteTransactionRequest {
+  string roll_no = 1;
+  string transaction_id = 2;
+}
+
+message BeginWriteTransactionResponse {
+  bool success = 1;
+  string message = 2;
+  Student current_student = 3;
+}
+
+message EndWriteTransactionRequest {
+  string roll_no = 1;
+  string transaction_id = 2;
+  Student updated_student = 3;
+}
+
+message EndWriteTransactionResponse {
+  bool success = 1;
+  Student final_student = 2;
+}
+
+message GetAllStudentsDataRequest {
+  string requester_type = 1;
+}
+
+message GetAllStudentsDataResponse {
+  bool success = 1;
+  repeated Student students = 2;
+  string message = 3;
+}
+
+// Admin Service Messages
+message GetSystemLogsRequest {
+  int32 last_n_lines = 1;
+  string service_name = 2;
+}
+
+message GetSystemLogsResponse {
+  repeated string log_lines = 1;
+  int64 timestamp = 2;
+}
+
+message GetServerMetricsRequest {}
+
+message GetServerMetricsResponse {
+  int32 active_students = 1;
+  int32 completed_submissions = 2;
+  int32 pending_requests = 3;
+  double cpu_usage = 4;
+  double memory_usage = 5;
+}
+
+message GetActiveConnectionsRequest {}
+
+message GetActiveConnectionsResponse {
+  repeated ConnectionInfo connections = 1;
+}
+
+message ConnectionInfo {
+  string client_id = 1;
+  string connection_type = 2;
+  int64 connected_since = 3;
+  string status = 4;
+}
+
+// Existing Ricart-Agrawala and Time Service Messages
+message RequestCSRequest {
+  string roll_no = 1;
+  int64 lamport_timestamp = 2;
+}
+
+message RequestCSResponse {
+  bool success = 1;
+}
+
+message ReleaseCSRequest {
+  string roll_no = 1;
+  int64 lamport_timestamp = 2;
+}
+
+message ReleaseCSResponse {
+  bool success = 1;
+}
+
+message GetClockRequest {}
+
+message GetClockResponse {
+  double clock = 1;
+}
+
+message SetClockRequest {
+  double offset = 1;
+}
+
+message SetClockResponse {
+  bool success = 1;
+}

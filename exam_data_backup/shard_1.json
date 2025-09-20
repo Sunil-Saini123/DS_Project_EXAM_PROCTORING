@@ -1,0 +1,47 @@
+{
+  "23102A0034": {
+    "roll_no": "23102A0034",
+    "name": "KAVYA MILIND TELAVANE",
+    "isa_marks": 39,
+    "mse_marks": 15,
+    "ese_marks": 26,
+    "status": "registered",
+    "cheating_count": 0
+  },
+  "23102A0036": {
+    "roll_no": "23102A0036",
+    "name": "Sunil Saini",
+    "isa_marks": 0,
+    "mse_marks": 0,
+    "ese_marks": 80,
+    "status": "submitted",
+    "cheating_count": 0
+  },
+  "23102A0038": {
+    "roll_no": "23102A0038",
+    "name": "PRAPTI VIVEK DETHE",
+    "isa_marks": 38,
+    "mse_marks": 17,
+    "ese_marks": 25,
+    "status": "registered",
+    "cheating_count": 0
+  },
+  "23102A0044": {
+    "roll_no": "23102A0044",
+    "name": "RUSHIKESH RAMESH AMBERKAR",
+    "isa_marks": 38,
+    "mse_marks": 7,
+    "ese_marks": 35,
+    "status": "registered",
+    "cheating_count": 0
+  },
+  "23102A0045": {
+    "roll_no": "23102A0045",
+    "name": "SHRUTI ANIL DUBEY",
+    "isa_marks": 33,
+    "mse_marks": 9,
+    "ese_marks": 38,
+    "status": "registered",
+    "cheating_count": 0
+  }
+}
