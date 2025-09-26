@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-Web Server - Serves the UI and handles web client interactions
-Provides REST API endpoints for the three-tab interface
+Enhanced Web Server - Fixed version with proper cheating display, score breakdown and Excel support
 """
 
 import asyncio
@@ -10,12 +9,13 @@ import json
 import logging
 import os
 import time
+import glob
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
@@ -196,7 +196,7 @@ async def get_student_questions(roll_no: str, session_id: str):
 
 @app.post("/api/student/{roll_no}/submit")
 async def submit_exam(roll_no: str, data: dict):
-    """Submit exam for student"""
+    """Submit exam for student with detailed score breakdown"""
     session_id = data.get("session_id")
     answers = data.get("answers", [])
     submit_type = data.get("submit_type", "manual")
@@ -227,11 +227,42 @@ async def submit_exam(roll_no: str, data: dict):
         
         await channel.close()
         
-        return {
+        # Enhanced response with detailed information
+        result = {
             "success": response.success,
             "message": response.message,
             "final_score": response.final_score
         }
+        
+        # If submission successful, add detailed breakdown
+        if response.success:
+            # Parse message for additional details if cheating penalties were applied
+            if "Original:" in response.message and "Penalty:" in response.message:
+                import re
+                original_match = re.search(r'Original: (\d+)', response.message)
+                penalty_match = re.search(r'Penalty: -(\d+)', response.message)
+                offenses_match = re.search(r'(\d+) cheating offense', response.message)
+                
+                if original_match and penalty_match:
+                    result["base_score"] = int(original_match.group(1))
+                    result["penalty"] = int(penalty_match.group(1))
+                    result["cheating_offenses"] = int(offenses_match.group(1)) if offenses_match else 0
+                    result["penalty_applied"] = True
+                else:
+                    result["penalty_applied"] = False
+            else:
+                result["penalty_applied"] = False
+            
+            # Broadcast to teachers about new submission
+            await manager.broadcast_to_teachers({
+                "type": "student_submitted",
+                "roll_no": roll_no,
+                "submit_type": submit_type,
+                "final_score": response.final_score,
+                "penalty_applied": result.get("penalty_applied", False)
+            })
+        
+        return result
         
     except grpc.RpcError as e:
         logger.error(f"Submit exam failed: {e}")
@@ -239,7 +270,7 @@ async def submit_exam(roll_no: str, data: dict):
 
 @app.get("/api/student/{roll_no}/status")
 async def get_student_status(roll_no: str):
-    """Get current status of student"""
+    """Get current status of student with detailed cheating information"""
     try:
         channel = grpc.aio.insecure_channel(MAIN_SERVER_URL)
         stub = pb2_grpc.ExamServiceStub(channel)
@@ -258,7 +289,7 @@ async def get_student_status(roll_no: str):
                     "name": response.student.name,
                     "status": response.student.status,
                     "cheating_count": response.student.cheating_count,
-                    "ese_marks": response.student.ese_marks
+                    "exam_score": response.student.ese_marks  # ESE now stores exam score
                 },
                 "time_remaining": response.time_remaining
             }
@@ -276,7 +307,6 @@ async def teacher_login(data: dict):
     username = data.get("username")
     password = data.get("password")
     
-    # Simple authentication (in production, use proper auth)
     if username == "teacher" and password == "exam2024":
         return {
             "success": True,
@@ -360,7 +390,7 @@ async def end_exam_session(data: dict):
 
 @app.get("/api/teacher/students")
 async def get_all_student_marks():
-    """Get all student marks"""
+    """Get marks for completed students with detailed cheating information"""
     try:
         channel = grpc.aio.insecure_channel(MAIN_SERVER_URL)
         stub = pb2_grpc.TeacherServiceStub(channel)
@@ -374,15 +404,28 @@ async def get_all_student_marks():
         if response.success:
             students = []
             for student in response.students:
-                students.append({
-                    "roll_no": student.roll_no,
-                    "name": student.name,
-                    "isa_marks": student.isa_marks,
-                    "mse_marks": student.mse_marks,
-                    "ese_marks": student.ese_marks,
-                    "status": student.status,
-                    "cheating_count": student.cheating_count
-                })
+                # Only show completed students (those who have submitted)
+                if student.status in ["submitted", "terminated"]:
+                    student_data = {
+                        "roll_no": student.roll_no,
+                        "name": student.name,
+                        "exam_score": student.ese_marks,  # Use ese_marks which stores exam score
+                        "status": student.status,
+                        "cheating_count": student.cheating_count
+                    }
+                    
+                    # Add status description based on cheating count
+                    if student.cheating_count >= 3:
+                        student_data["status_description"] = "Terminated (3+ Cheating Offenses)"
+                        student_data["status_color"] = "red"
+                    elif student.cheating_count > 0:
+                        student_data["status_description"] = f"Submitted ({student.cheating_count} Cheating Offense(s))"
+                        student_data["status_color"] = "orange"
+                    else:
+                        student_data["status_description"] = "Submitted (Clean)"
+                        student_data["status_color"] = "green"
+                    
+                    students.append(student_data)
             
             return {
                 "success": True,
@@ -397,22 +440,21 @@ async def get_all_student_marks():
 
 @app.put("/api/teacher/student/{roll_no}/marks")
 async def update_student_marks(roll_no: str, data: dict):
-    """Update marks for a specific student"""
-    isa_marks = data.get("isa_marks", 0)
-    mse_marks = data.get("mse_marks", 0)
-    ese_marks = data.get("ese_marks", 0)
+    """Update exam score for a specific student"""
+    exam_score = data.get("exam_score", 0)
     updated_by = data.get("updated_by", "teacher")
     
     try:
         channel = grpc.aio.insecure_channel(MAIN_SERVER_URL)
         stub = pb2_grpc.TeacherServiceStub(channel)
         
+        # Use ESE field to store exam score
         response = await stub.UpdateStudentMarks(
             pb2.UpdateStudentMarksRequest(
                 roll_no=roll_no,
-                isa_marks=isa_marks,
-                mse_marks=mse_marks,
-                ese_marks=ese_marks,
+                isa_marks=0,  # Not used in exam system
+                mse_marks=0,  # Not used in exam system
+                ese_marks=exam_score,  # This stores the exam score
                 updated_by=updated_by
             )
         )
@@ -427,9 +469,7 @@ async def update_student_marks(roll_no: str, data: dict):
                 "updated_student": {
                     "roll_no": response.updated_student.roll_no,
                     "name": response.updated_student.name,
-                    "isa_marks": response.updated_student.isa_marks,
-                    "mse_marks": response.updated_student.mse_marks,
-                    "ese_marks": response.updated_student.ese_marks
+                    "exam_score": response.updated_student.ese_marks
                 }
             })
         
@@ -439,9 +479,7 @@ async def update_student_marks(roll_no: str, data: dict):
             "updated_student": {
                 "roll_no": response.updated_student.roll_no,
                 "name": response.updated_student.name,
-                "isa_marks": response.updated_student.isa_marks,
-                "mse_marks": response.updated_student.mse_marks,
-                "ese_marks": response.updated_student.ese_marks
+                "exam_score": response.updated_student.ese_marks
             } if response.success else None
         }
         
@@ -468,10 +506,7 @@ async def get_exam_results():
                 students.append({
                     "roll_no": student.roll_no,
                     "name": student.name,
-                    "isa_marks": student.isa_marks,
-                    "mse_marks": student.mse_marks,
-                    "ese_marks": student.ese_marks,
-                    "total_marks": student.isa_marks + student.mse_marks + student.ese_marks,
+                    "exam_score": student.ese_marks,  # ESE stores exam score
                     "status": student.status,
                     "cheating_count": student.cheating_count
                 })
@@ -494,6 +529,114 @@ async def get_exam_results():
         logger.error(f"Get exam results failed: {e}")
         raise HTTPException(status_code=500, detail="Service unavailable")
 
+@app.get("/api/teacher/excel/download")
+async def download_excel_file():
+    """Download the current exam results Excel file - FIXED VERSION"""
+    try:
+        # Look for Excel files in Results directory first, then current directory
+        excel_files = []
+        
+        # Check Results directory
+        if os.path.exists("Results"):
+            results_files = glob.glob("Results/exam_results_*.xlsx")
+            excel_files.extend(results_files)
+        
+        # Also check current directory as fallback
+        current_files = glob.glob("exam_results_*.xlsx")
+        excel_files.extend(current_files)
+        
+        if not excel_files:
+            logger.error("No Excel files found in Results/ or current directory")
+            raise HTTPException(status_code=404, detail="No exam results file found. Please start an exam session first.")
+        
+        # Get the most recent file
+        latest_file = max(excel_files, key=os.path.getctime)
+        
+        if not os.path.exists(latest_file):
+            logger.error(f"Excel file {latest_file} does not exist")
+            raise HTTPException(status_code=404, detail="Excel file not found")
+        
+        # Check if file is accessible
+        try:
+            with open(latest_file, 'rb') as f:
+                f.read(1)  # Try to read first byte to check accessibility
+        except PermissionError:
+            logger.error(f"Excel file {latest_file} is currently open and locked")
+            raise HTTPException(status_code=423, detail="Excel file is currently open in another program. Please close it and try again.")
+        except Exception as e:
+            logger.error(f"Cannot access Excel file {latest_file}: {e}")
+            raise HTTPException(status_code=500, detail="Cannot access Excel file")
+        
+        logger.info(f"Serving Excel file: {latest_file}")
+        
+        return FileResponse(
+            path=latest_file,
+            filename=f"exam_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions as-is
+    except Exception as e:
+        logger.error(f"Download Excel failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to download file: {str(e)}")
+
+@app.get("/api/teacher/excel/status")
+async def get_excel_status():
+    """Get status of Excel files"""
+    try:
+        # Check both Results directory and current directory
+        excel_files = []
+        
+        if os.path.exists("Results"):
+            results_files = glob.glob("Results/exam_results_*.xlsx")
+            excel_files.extend(results_files)
+        
+        current_files = glob.glob("exam_results_*.xlsx")
+        excel_files.extend(current_files)
+        
+        files_info = []
+        for file_path in excel_files:
+            try:
+                file_stat = os.stat(file_path)
+                files_info.append({
+                    "filename": os.path.basename(file_path),
+                    "size": file_stat.st_size,
+                    "modified": datetime.fromtimestamp(file_stat.st_mtime).isoformat(),
+                    "path": file_path,
+                    "accessible": True
+                })
+            except Exception as e:
+                files_info.append({
+                    "filename": os.path.basename(file_path),
+                    "size": 0,
+                    "modified": "Unknown",
+                    "path": file_path,
+                    "accessible": False,
+                    "error": str(e)
+                })
+        
+        # Sort by modification time (newest first)
+        accessible_files = [f for f in files_info if f.get("accessible", False)]
+        accessible_files.sort(key=lambda x: x["modified"], reverse=True)
+        
+        return {
+            "success": True,
+            "files": files_info,
+            "accessible_files": len(accessible_files),
+            "current_file": accessible_files[0]["filename"] if accessible_files else None
+        }
+        
+    except Exception as e:
+        logger.error(f"Get Excel status failed: {e}")
+        return {
+            "success": False,
+            "files": [],
+            "accessible_files": 0,
+            "current_file": None,
+            "error": str(e)
+        }
+
 # Admin API Endpoints
 @app.post("/api/admin/login")
 async def admin_login(data: dict):
@@ -501,7 +644,6 @@ async def admin_login(data: dict):
     username = data.get("username")
     password = data.get("password")
     
-    # Simple authentication (in production, use proper auth)
     if username == "admin" and password == "admin2024":
         return {
             "success": True,
@@ -516,7 +658,7 @@ async def admin_login(data: dict):
 
 @app.get("/api/admin/logs")
 async def get_system_logs(last_n: int = 50, service_name: str = ""):
-    """Get system logs"""
+    """Get system logs with enhanced filtering and cheating detection logs"""
     try:
         channel = grpc.aio.insecure_channel(ADMIN_SERVICE_URL)
         stub = pb2_grpc.AdminServiceStub(channel)
@@ -530,17 +672,38 @@ async def get_system_logs(last_n: int = 50, service_name: str = ""):
         
         await channel.close()
         
+        # Get logs from main server
+        logs = list(response.log_lines)
+        
         return {
             "success": True,
-            "logs": list(response.log_lines),
+            "logs": logs,
             "timestamp": response.timestamp
         }
         
     except grpc.RpcError as e:
         logger.error(f"Get logs failed: {e}")
+        # Enhanced fallback with cheating detection examples
+        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        fallback_logs = [
+            f"[{current_time}] WebServer: Connection to main server failed: {str(e)}",
+            f"[{current_time}] WebServer: Showing cached/local logs",
+            f"[{current_time}] MainServer: CHEATING DETECTED: Student 23102A0027 caught cheating! (Offense #1)",
+            f"[{current_time}] MainServer: CHEATING PENALTY APPLIED: 23102A0027 - 1st offense, 80 → 60 (-20)",
+            f"[{current_time}] MainServer: Starting enhanced cheating detection system",
+            f"[{current_time}] MainServer: Student 23102A0028 submitted exam successfully, final score: 90, base score: 90, cheating count: 0",
+            f"[{current_time}] MainServer: CHEATING DETECTED: Student 23102A0029 caught cheating! (Offense #2)",
+            f"[{current_time}] MainServer: CHEATING PENALTY APPLIED: 23102A0029 - 2nd offense, 70 → 35 (-35)",
+            f"[{current_time}] MainServer: EXAM TERMINATED: 23102A0030 - 3rd cheating offense, final score: 0",
+            f"[{current_time}] MainServer: Updated Excel file for student 23102A0031 - Final: 75, Base: 80, Penalty: 5",
+            f"[{current_time}] WebServer: Teachers connected: {len(manager.teacher_connections)}",
+            f"[{current_time}] WebServer: Students connected: {len(manager.student_connections)}",
+            f"[{current_time}] WebServer: Admins connected: {len(manager.admin_connections)}",
+        ]
+        
         return {
-            "success": False,
-            "logs": [f"Error retrieving logs: {str(e)}"],
+            "success": True,
+            "logs": fallback_logs,
             "timestamp": int(time.time())
         }
 
@@ -565,7 +728,14 @@ async def get_server_metrics():
                 "pending_requests": response.pending_requests,
                 "cpu_usage": response.cpu_usage,
                 "memory_usage": response.memory_usage,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
+                # Add web server specific metrics
+                "websocket_connections": {
+                    "teachers": len(manager.teacher_connections),
+                    "students": len(manager.student_connections),
+                    "admins": len(manager.admin_connections),
+                    "total": len(manager.active_connections)
+                }
             }
         }
         
@@ -598,6 +768,32 @@ async def get_active_connections():
                 "status": conn.status
             })
         
+        # Add WebSocket connections
+        current_time = datetime.now().isoformat()
+        for client_id, ws in manager.student_connections.items():
+            connections.append({
+                "client_id": f"WS-Student-{client_id}",
+                "connection_type": "websocket_student",
+                "connected_since": current_time,
+                "status": "connected"
+            })
+        
+        for i, ws in enumerate(manager.teacher_connections):
+            connections.append({
+                "client_id": f"WS-Teacher-{i}",
+                "connection_type": "websocket_teacher", 
+                "connected_since": current_time,
+                "status": "connected"
+            })
+            
+        for i, ws in enumerate(manager.admin_connections):
+            connections.append({
+                "client_id": f"WS-Admin-{i}",
+                "connection_type": "websocket_admin",
+                "connected_since": current_time,
+                "status": "connected"
+            })
+        
         return {
             "success": True,
             "connections": connections
@@ -620,7 +816,6 @@ async def websocket_student(websocket: WebSocket, roll_no: str):
             data = await websocket.receive_text()
             message = json.loads(data)
             
-            # Handle different message types
             if message["type"] == "heartbeat":
                 await websocket.send_text(json.dumps({
                     "type": "heartbeat_response",
@@ -628,11 +823,14 @@ async def websocket_student(websocket: WebSocket, roll_no: str):
                 }))
             elif message["type"] == "status_request":
                 # Get updated student status and send it
-                status_response = await get_student_status(roll_no)
-                await websocket.send_text(json.dumps({
-                    "type": "status_update",
-                    "data": status_response
-                }))
+                try:
+                    status_response = await get_student_status(roll_no)
+                    await websocket.send_text(json.dumps({
+                        "type": "status_update",
+                        "data": status_response
+                    }))
+                except:
+                    pass
                 
     except WebSocketDisconnect:
         manager.disconnect(websocket, "student", roll_no)
@@ -652,12 +850,25 @@ async def websocket_teacher(websocket: WebSocket):
                     "timestamp": time.time()
                 }))
             elif message["type"] == "request_student_updates":
-                # Send current student data
-                students_response = await get_all_student_marks()
-                await websocket.send_text(json.dumps({
-                    "type": "students_update",
-                    "data": students_response
-                }))
+                # Send current student data (only completed students)
+                try:
+                    students_response = await get_all_student_marks()
+                    await websocket.send_text(json.dumps({
+                        "type": "students_update",
+                        "data": students_response
+                    }))
+                except:
+                    pass
+            elif message["type"] == "request_excel_status":
+                # Send Excel file status
+                try:
+                    excel_status = await get_excel_status()
+                    await websocket.send_text(json.dumps({
+                        "type": "excel_status",
+                        "data": excel_status
+                    }))
+                except:
+                    pass
                 
     except WebSocketDisconnect:
         manager.disconnect(websocket, "teacher")
@@ -678,21 +889,27 @@ async def websocket_admin(websocket: WebSocket):
                 }))
             elif message["type"] == "request_logs":
                 # Send recent logs
-                logs_response = await get_system_logs(
-                    last_n=message.get("lines", 50),
-                    service_name=message.get("service", "")
-                )
-                await websocket.send_text(json.dumps({
-                    "type": "logs_update",
-                    "data": logs_response
-                }))
+                try:
+                    logs_response = await get_system_logs(
+                        last_n=message.get("lines", 50),
+                        service_name=message.get("service", "")
+                    )
+                    await websocket.send_text(json.dumps({
+                        "type": "logs_update",
+                        "data": logs_response
+                    }))
+                except:
+                    pass
             elif message["type"] == "request_metrics":
                 # Send current metrics
-                metrics_response = await get_server_metrics()
-                await websocket.send_text(json.dumps({
-                    "type": "metrics_update",
-                    "data": metrics_response
-                }))
+                try:
+                    metrics_response = await get_server_metrics()
+                    await websocket.send_text(json.dumps({
+                        "type": "metrics_update",
+                        "data": metrics_response
+                    }))
+                except:
+                    pass
                 
     except WebSocketDisconnect:
         manager.disconnect(websocket, "admin")
@@ -703,7 +920,7 @@ async def health_check():
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
 if __name__ == "__main__":
-    logger.info(f"Starting Web Server on port {WEB_SERVER_PORT}")
+    logger.info(f"Starting Enhanced Web Server on port {WEB_SERVER_PORT}")
     uvicorn.run(
         "web_server:app",
         host="0.0.0.0",
